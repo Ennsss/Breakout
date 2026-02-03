@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.scrapers import BaseScraper, FBrefScraper, TransfermarktScraper
+from src.scrapers import BaseScraper, FBrefScraper, TransfermarktScraper, UnderstatScraper
 
 
 class TestBaseScraper:
@@ -435,3 +435,238 @@ class TestTransfermarktIntegration:
         assert len(players) > 0
         assert all("name" in p for p in players)
         assert all("player_id" in p for p in players)
+
+
+class TestUnderstatScraper:
+    """Tests for Understat scraper."""
+
+    @pytest.fixture
+    def scraper(self, tmp_path):
+        """Create a scraper instance for testing."""
+        return UnderstatScraper(cache_dir=tmp_path, rate_limit=0)
+
+    @pytest.fixture
+    def league_html(self):
+        """Load the league fixture."""
+        fixture_path = Path(__file__).parent / "fixtures" / "understat_league.html"
+        return fixture_path.read_text(encoding="utf-8")
+
+    def test_source_name(self, scraper):
+        """Test that source name is correct."""
+        assert scraper.source_name == "understat"
+
+    def test_league_ids_defined(self, scraper):
+        """Test that league IDs are defined."""
+        assert "eredivisie" in scraper.LEAGUE_IDS
+        assert "premier-league" in scraper.LEAGUE_IDS
+        assert scraper.LEAGUE_IDS["eredivisie"] == "Eredivisie"
+        assert scraper.LEAGUE_IDS["premier-league"] == "EPL"
+
+    def test_unavailable_leagues(self, scraper):
+        """Test that unavailable leagues are marked as None."""
+        assert scraper.LEAGUE_IDS.get("championship") is None
+        assert scraper.LEAGUE_IDS.get("primeira-liga") is None
+        assert scraper.LEAGUE_IDS.get("belgian-pro-league") is None
+
+    def test_convert_season_format(self, scraper):
+        """Test season format conversion."""
+        assert scraper._convert_season_format("2023-2024") == "2023"
+        assert scraper._convert_season_format("2023-24") == "2023"
+        assert scraper._convert_season_format("2022-2023") == "2022"
+
+    def test_build_league_url(self, scraper):
+        """Test URL building."""
+        url = scraper._build_league_url("eredivisie", "2023-2024")
+        assert "understat.com" in url
+        assert "Eredivisie" in url
+        assert "2023" in url
+
+        url_epl = scraper._build_league_url("premier-league", "2023-2024")
+        assert "EPL" in url_epl
+
+    def test_position_mapping(self, scraper):
+        """Test position code mapping."""
+        assert scraper.POSITION_MAP["F"] == "FW"
+        assert scraper.POSITION_MAP["M"] == "MF"
+        assert scraper.POSITION_MAP["D"] == "DF"
+        assert scraper.POSITION_MAP["GK"] == "GK"
+        assert scraper.POSITION_MAP["S"] == "FW"
+
+    def test_decode_json_string(self, scraper):
+        """Test JSON string decoding."""
+        # Normal string should pass through
+        normal = '{"key": "value"}'
+        assert scraper._decode_json_string(normal) == normal
+
+    def test_extract_players_data(self, scraper, league_html):
+        """Test player data extraction from HTML."""
+        players = scraper._extract_players_data(league_html)
+
+        assert len(players) == 3
+        assert players[0]["player_name"] == "Cody Gakpo"
+        assert players[1]["player_name"] == "Test Midfielder"
+        assert players[2]["player_name"] == "Young Defender"
+
+    def test_extract_players_data_missing(self, scraper):
+        """Test extraction with missing playersData."""
+        html = "<html><body>No data here</body></html>"
+        players = scraper._extract_players_data(html)
+        assert players == []
+
+    def test_parse_player_record(self, scraper):
+        """Test player record parsing."""
+        raw = {
+            "id": "1234",
+            "player_name": "Cody Gakpo",
+            "games": "34",
+            "time": "2856",
+            "goals": "21",
+            "assists": "15",
+            "xG": "15.8",
+            "xA": "10.2",
+            "npg": "18",
+            "npxG": "12.4",
+            "xGChain": "22.5",
+            "xGBuildup": "8.3",
+            "shots": "98",
+            "key_passes": "67",
+            "yellow_cards": "3",
+            "red_cards": "0",
+            "position": "F",
+            "team_title": "PSV Eindhoven",
+        }
+
+        player = scraper._parse_player_record(raw, "eredivisie", "2023-2024")
+
+        assert player["player_id"] == "1234"
+        assert player["name"] == "Cody Gakpo"
+        assert player["position"] == "FW"  # F -> FW
+        assert player["team"] == "PSV Eindhoven"
+        assert player["games"] == 34
+        assert player["minutes"] == 2856
+        assert player["goals"] == 21
+        assert player["assists"] == 15
+        assert player["xg"] == 15.8
+        assert player["xa"] == 10.2
+        assert player["npg"] == 18
+        assert player["npxg"] == 12.4
+        assert player["shots"] == 98
+        assert player["key_passes"] == 67
+        assert player["league"] == "eredivisie"
+        assert player["season"] == "2023-2024"
+        assert player["source"] == "understat"
+
+    def test_per90_calculations(self, scraper):
+        """Test per-90 stat calculations."""
+        raw = {
+            "id": "1234",
+            "player_name": "Test Player",
+            "time": "900",  # Exactly 10 90s
+            "goals": "10",
+            "assists": "5",
+            "xG": "8.0",
+            "xA": "4.0",
+            "npxG": "7.0",
+            "position": "F",
+        }
+
+        player = scraper._parse_player_record(raw, "eredivisie", "2023-2024")
+
+        assert player["minutes_90s"] == 10.0
+        assert player["goals_per90"] == 1.0
+        assert player["assists_per90"] == 0.5
+        assert player["xg_per90"] == 0.8
+        assert player["xa_per90"] == 0.4
+        assert player["npxg_per90"] == 0.7
+
+    def test_zero_minutes_handling(self, scraper):
+        """Test handling of players with zero minutes."""
+        raw = {
+            "id": "1234",
+            "player_name": "Bench Warmer",
+            "time": "0",
+            "goals": "0",
+            "assists": "0",
+            "xG": "0",
+            "xA": "0",
+            "npxG": "0",
+            "position": "F",
+        }
+
+        player = scraper._parse_player_record(raw, "eredivisie", "2023-2024")
+
+        assert player["minutes"] == 0
+        assert player["minutes_90s"] == 0.0
+        assert player["goals_per90"] is None
+        assert player["assists_per90"] is None
+        assert player["xg_per90"] is None
+
+    def test_overperformance_calculations(self, scraper):
+        """Test xG/xA overperformance calculations."""
+        raw = {
+            "id": "1234",
+            "player_name": "Clinical Striker",
+            "time": "900",
+            "goals": "15",  # 5 goals above xG
+            "assists": "8",  # 3 assists above xA
+            "xG": "10.0",
+            "xA": "5.0",
+            "npxG": "9.0",
+            "position": "F",
+        }
+
+        player = scraper._parse_player_record(raw, "eredivisie", "2023-2024")
+
+        assert player["xg_overperformance"] == 5.0
+        assert player["xa_overperformance"] == 3.0
+
+    @patch.object(UnderstatScraper, "fetch")
+    def test_scrape_league_season(self, mock_fetch, scraper, league_html):
+        """Test full league season scraping with mocked requests."""
+        mock_fetch.return_value = league_html
+
+        players = scraper.scrape_league_season("eredivisie", "2023-2024")
+
+        assert len(players) == 3
+
+        # Check metadata is added
+        for player in players:
+            assert player["league"] == "eredivisie"
+            assert player["season"] == "2023-2024"
+            assert player["source"] == "understat"
+
+        # Check Gakpo
+        gakpo = next(p for p in players if p["name"] == "Cody Gakpo")
+        assert gakpo["goals"] == 21
+        assert gakpo["position"] == "FW"
+        assert gakpo["xg"] == 15.8
+
+        # Check midfielder
+        midfielder = next(p for p in players if p["name"] == "Test Midfielder")
+        assert midfielder["position"] == "MF"
+        assert midfielder["assists"] == 8
+
+    def test_unknown_league_raises_error(self, scraper):
+        """Test that unknown league raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown league"):
+            scraper.scrape_league_season("fake-league", "2023-2024")
+
+    def test_unavailable_league_raises_error(self, scraper):
+        """Test that unavailable league raises descriptive error."""
+        with pytest.raises(ValueError, match="not available on Understat"):
+            scraper.scrape_league_season("championship", "2023-2024")
+
+
+class TestUnderstatIntegration:
+    """Integration tests for Understat scraper."""
+
+    @pytest.mark.skip(reason="Integration test - hits real API")
+    def test_real_eredivisie_scrape(self, tmp_path):
+        """Test scraping real Eredivisie data."""
+        scraper = UnderstatScraper(cache_dir=tmp_path, rate_limit=5)
+        players = scraper.scrape_league_season("eredivisie", "2023-2024")
+
+        assert len(players) > 0
+        assert all("name" in p for p in players)
+        assert all("player_id" in p for p in players)
+        assert all("xg" in p for p in players)
