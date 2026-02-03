@@ -1,0 +1,191 @@
+# Feature configuration for Hidden Gem Finder
+
+# Raw features directly from data sources
+raw_features:
+  # Demographics
+  - name: age
+    source: calculated
+    description: "Age at observation time"
+
+  - name: minutes_played
+    source: fbref
+    description: "Total minutes played in season"
+
+  # Attacking metrics
+  - name: goals_per90
+    source: fbref
+    description: "Goals scored per 90 minutes"
+
+  - name: assists_per90
+    source: fbref
+    description: "Assists per 90 minutes"
+
+  - name: xg_per90
+    source: fbref
+    description: "Expected goals per 90 minutes"
+
+  - name: xa_per90
+    source: fbref
+    description: "Expected assists per 90 minutes"
+
+  - name: npxg_per90
+    source: fbref
+    description: "Non-penalty xG per 90 minutes"
+
+  - name: shots_per90
+    source: fbref
+    description: "Total shots per 90 minutes"
+
+  - name: shots_on_target_pct
+    source: fbref
+    description: "Percentage of shots on target"
+
+  # Passing metrics
+  - name: passes_per90
+    source: fbref
+    description: "Passes attempted per 90 minutes"
+
+  - name: pass_completion_pct
+    source: fbref
+    description: "Pass completion percentage"
+
+  - name: progressive_passes_per90
+    source: fbref
+    description: "Progressive passes per 90 minutes"
+
+  - name: key_passes_per90
+    source: fbref
+    description: "Key passes (leading to shot) per 90 minutes"
+
+  - name: through_balls_per90
+    source: fbref
+    description: "Through balls per 90 minutes"
+
+  # Possession metrics
+  - name: progressive_carries_per90
+    source: fbref
+    description: "Progressive carries per 90 minutes"
+
+  - name: successful_dribbles_per90
+    source: fbref
+    description: "Successful dribbles per 90 minutes"
+
+  - name: touches_in_box_per90
+    source: fbref
+    description: "Touches in penalty area per 90 minutes"
+
+  # Defensive metrics
+  - name: tackles_per90
+    source: fbref
+    description: "Tackles per 90 minutes"
+
+  - name: interceptions_per90
+    source: fbref
+    description: "Interceptions per 90 minutes"
+
+  - name: blocks_per90
+    source: fbref
+    description: "Blocks per 90 minutes"
+
+  - name: clearances_per90
+    source: fbref
+    description: "Clearances per 90 minutes"
+
+  - name: aerials_won_pct
+    source: fbref
+    description: "Aerial duels won percentage"
+
+  # Valuation
+  - name: market_value_eur
+    source: transfermarkt
+    description: "Current market value in EUR"
+
+# Derived features (engineered)
+derived_features:
+  - name: xg_overperformance
+    formula: "goals_per90 - xg_per90"
+    description: "Finishing quality above expected"
+
+  - name: xa_overperformance
+    formula: "assists_per90 - xa_per90"
+    description: "Creative quality above expected"
+
+  - name: goal_contribution_per90
+    formula: "goals_per90 + assists_per90"
+    description: "Combined attacking output"
+
+  - name: npxg_xa_per90
+    formula: "npxg_per90 + xa_per90"
+    description: "Non-penalty expected contribution"
+
+  - name: league_adjusted_xg
+    formula: "xg_per90 * league_difficulty_coefficient"
+    description: "xG adjusted for league quality"
+
+  - name: involvement_score
+    formula: "(touches_per90 + passes_per90) / 100"
+    description: "Centrality to team play"
+
+  - name: age_potential_factor
+    formula: "(27 - age) / 10"
+    description: "Higher for younger players"
+
+  - name: minutes_share
+    formula: "minutes_played / max_possible_minutes"
+    description: "Share of available playing time"
+
+# Year-over-year growth features
+growth_features:
+  metrics_to_track:
+    - xg_per90
+    - xa_per90
+    - progressive_passes_per90
+    - progressive_carries_per90
+    - minutes_played
+
+  formula: "(current - previous) / (previous + epsilon)"
+  epsilon: 0.01
+
+# Position-specific feature sets
+position_features:
+  FW:
+    primary:
+      - xg_per90
+      - npxg_per90
+      - shots_per90
+      - shots_on_target_pct
+      - touches_in_box_per90
+      - successful_dribbles_per90
+      - xg_overperformance
+    secondary:
+      - xa_per90
+      - key_passes_per90
+
+  MF:
+    primary:
+      - progressive_passes_per90
+      - progressive_carries_per90
+      - key_passes_per90
+      - pass_completion_pct
+      - xa_per90
+    secondary:
+      - tackles_per90
+      - interceptions_per90
+      - xg_per90
+
+  DF:
+    primary:
+      - tackles_per90
+      - interceptions_per90
+      - blocks_per90
+      - clearances_per90
+      - aerials_won_pct
+    secondary:
+      - progressive_passes_per90
+      - pass_completion_pct
+
+# Feature selection config
+selection:
+  correlation_threshold: 0.90  # Remove features correlated above this
+  importance_threshold: 0.01   # Minimum feature importance to keep
+  variance_threshold: 0.01     # Minimum variance to keep

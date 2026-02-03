@@ -1,0 +1,146 @@
+# Model configuration for Hidden Gem Finder
+
+# General training settings
+training:
+  random_seed: 42
+  n_jobs: -1  # Use all cores
+  verbose: 1
+
+# Class imbalance handling
+imbalance:
+  strategy: "class_weight"  # Options: class_weight, smote, undersampling
+  positive_weight: 10  # Weight for minority class
+
+# Cross-validation settings
+cross_validation:
+  strategy: "walk_forward"
+  n_folds: 3
+  folds:
+    - train_end: "2018-19"
+      val: "2019-20"
+      test: "2020-21"
+    - train_end: "2019-20"
+      val: "2020-21"
+      test: "2021-22"
+    - train_end: "2020-21"
+      val: "2021-22"
+      test: "2022-23"
+
+# LightGBM configuration
+lightgbm:
+  base_params:
+    objective: "binary"
+    metric: "auc"
+    boosting_type: "gbdt"
+    num_leaves: 31
+    learning_rate: 0.05
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 5
+    verbose: -1
+    random_state: 42
+
+  tuning_space:
+    num_leaves:
+      low: 15
+      high: 63
+    learning_rate:
+      low: 0.01
+      high: 0.2
+      log: true
+    feature_fraction:
+      low: 0.5
+      high: 1.0
+    bagging_fraction:
+      low: 0.5
+      high: 1.0
+    min_child_samples:
+      low: 10
+      high: 100
+    reg_alpha:
+      low: 0.0
+      high: 1.0
+    reg_lambda:
+      low: 0.0
+      high: 1.0
+
+  tuning_trials: 100
+  early_stopping_rounds: 50
+
+# XGBoost configuration
+xgboost:
+  base_params:
+    objective: "binary:logistic"
+    eval_metric: "auc"
+    booster: "gbtree"
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+
+  tuning_space:
+    max_depth:
+      low: 3
+      high: 10
+    learning_rate:
+      low: 0.01
+      high: 0.2
+      log: true
+    subsample:
+      low: 0.5
+      high: 1.0
+    colsample_bytree:
+      low: 0.5
+      high: 1.0
+    min_child_weight:
+      low: 1
+      high: 10
+    reg_alpha:
+      low: 0.0
+      high: 1.0
+    reg_lambda:
+      low: 0.0
+      high: 1.0
+
+  tuning_trials: 100
+  early_stopping_rounds: 50
+
+# Logistic Regression (baseline)
+logistic:
+  params:
+    penalty: "l2"
+    C: 1.0
+    solver: "lbfgs"
+    max_iter: 1000
+    random_state: 42
+
+# Ensemble configuration
+ensemble:
+  strategy: "weighted_average"
+  weights:
+    lightgbm: 0.5
+    xgboost: 0.5
+  calibration:
+    enabled: true
+    method: "isotonic"  # Options: isotonic, platt
+
+# Evaluation thresholds
+evaluation:
+  primary_metric: "roc_auc"
+  target_metrics:
+    roc_auc: 0.75
+    precision_at_20: 0.30
+    recall_at_100: 0.50
+    brier_score: 0.15
+
+  k_values: [10, 20, 50, 100]
+
+# SHAP configuration
+shap:
+  enabled: true
+  max_samples: 1000  # For performance
+  plot_types:
+    - summary
+    - waterfall
+    - force

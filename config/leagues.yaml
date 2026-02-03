@@ -1,0 +1,128 @@
+# League configuration for Hidden Gem Finder
+
+# Target leagues (top-5 European leagues)
+target_leagues:
+  - name: "Premier League"
+    country: "England"
+    fbref_id: "9"
+    transfermarkt_id: "GB1"
+    coefficient: 1.00
+
+  - name: "La Liga"
+    country: "Spain"
+    fbref_id: "12"
+    transfermarkt_id: "ES1"
+    coefficient: 0.95
+
+  - name: "Bundesliga"
+    country: "Germany"
+    fbref_id: "20"
+    transfermarkt_id: "L1"
+    coefficient: 0.93
+
+  - name: "Serie A"
+    country: "Italy"
+    fbref_id: "11"
+    transfermarkt_id: "IT1"
+    coefficient: 0.90
+
+  - name: "Ligue 1"
+    country: "France"
+    fbref_id: "13"
+    transfermarkt_id: "FR1"
+    coefficient: 0.85
+
+# Source leagues (feeder leagues to scout)
+source_leagues:
+  - name: "Eredivisie"
+    country: "Netherlands"
+    fbref_id: "23"
+    transfermarkt_id: "NL1"
+    difficulty_coefficient: 0.85
+    priority: 1
+
+  - name: "Primeira Liga"
+    country: "Portugal"
+    fbref_id: "32"
+    transfermarkt_id: "PO1"
+    difficulty_coefficient: 0.82
+    priority: 1
+
+  - name: "Belgian Pro League"
+    country: "Belgium"
+    fbref_id: "37"
+    transfermarkt_id: "BE1"
+    difficulty_coefficient: 0.75
+    priority: 1
+
+  - name: "Championship"
+    country: "England"
+    fbref_id: "10"
+    transfermarkt_id: "GB2"
+    difficulty_coefficient: 0.78
+    priority: 1
+
+  - name: "Serie B"
+    country: "Italy"
+    fbref_id: "18"
+    transfermarkt_id: "IT2"
+    difficulty_coefficient: 0.72
+    priority: 2
+
+  - name: "Ligue 2"
+    country: "France"
+    fbref_id: "60"
+    transfermarkt_id: "FR2"
+    difficulty_coefficient: 0.70
+    priority: 2
+
+  - name: "Austrian Bundesliga"
+    country: "Austria"
+    fbref_id: "56"
+    transfermarkt_id: "A1"
+    difficulty_coefficient: 0.68
+    priority: 2
+
+  - name: "Scottish Premiership"
+    country: "Scotland"
+    fbref_id: "40"
+    transfermarkt_id: "SC1"
+    difficulty_coefficient: 0.65
+    priority: 2
+
+# Position groupings
+position_groups:
+  FW:
+    - ST
+    - CF
+    - LW
+    - RW
+    - SS
+  MF:
+    - CM
+    - CAM
+    - CDM
+    - LM
+    - RM
+    - AM
+    - DM
+  DF:
+    - CB
+    - LB
+    - RB
+    - LWB
+    - RWB
+    - SW
+
+# Training window configuration
+training:
+  start_season: "2015-16"
+  end_season: "2021-22"
+  validation_season: "2022-23"
+  prediction_season: "2024-25"
+  lookforward_years: 3
+  min_breakout_minutes: 900
+  min_observation_minutes: 450
+  age_range:
+    min: 17
+    max: 26
