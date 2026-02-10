@@ -506,6 +506,157 @@ class DataPipeline:
         logger.info(f"Phase 2 complete. Outputs saved to {output_path}")
         return results
 
+    def run_phase3(
+        self,
+        input_dir: str | Path = "data/processed",
+        output_dir: str | Path = "outputs/models",
+        n_trials: int = 100,
+        skip_tuning: bool = False,
+    ) -> dict:
+        """Run Phase 3 pipeline: tune → train → evaluate → explain → save.
+
+        Args:
+            input_dir: Directory with fold parquet files from Phase 2
+            output_dir: Directory to save models, metrics, predictions
+            n_trials: Number of Optuna trials per model
+            skip_tuning: If True, use base params instead of tuning
+
+        Returns:
+            Dictionary with evaluation results and output paths
+        """
+        import json as json_mod
+        import yaml
+        import joblib
+        import numpy as np
+
+        from src.models.trainer import load_fold, train_baseline, train_lgbm, train_xgb
+        from src.models.tuner import tune_lgbm, tune_xgb
+        from src.models.evaluator import evaluate_fold, cross_fold_summary
+        from src.models.explainer import generate_explanations
+
+        input_path = Path(input_dir)
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Load config
+        config_path = Path("config/model_params.yaml")
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        n_folds = config.get("cross_validation", {}).get("n_folds", 3)
+        results = {"folds": {}}
+
+        # Tune hyperparameters on fold 1 (or skip)
+        logger.info("Phase 3: Loading fold 1 for tuning...")
+        X_train, y_train, X_val, y_val, X_test, y_test, meta_test, feature_names = load_fold(
+            input_path, 1
+        )
+
+        if skip_tuning:
+            lgbm_best_params = config.get("lightgbm", {}).get("base_params", {})
+            xgb_best_params = config.get("xgboost", {}).get("base_params", {})
+            logger.info("Skipping tuning, using base params")
+        else:
+            logger.info(f"Tuning LightGBM ({n_trials} trials)...")
+            lgbm_best_params, _ = tune_lgbm(X_train, y_train, X_val, y_val, config, n_trials)
+
+            logger.info(f"Tuning XGBoost ({n_trials} trials)...")
+            xgb_best_params, _ = tune_xgb(X_train, y_train, X_val, y_val, config, n_trials)
+
+        # Save best params
+        with open(output_path / "best_params_lgbm.json", "w") as f:
+            json_mod.dump(lgbm_best_params, f, indent=2)
+        with open(output_path / "best_params_xgb.json", "w") as f:
+            json_mod.dump(xgb_best_params, f, indent=2)
+
+        # Train baseline on fold 1
+        logger.info("Training baseline logistic regression...")
+        baseline_model, baseline_scaler = train_baseline(X_train, y_train, config)
+        joblib.dump({"model": baseline_model, "scaler": baseline_scaler},
+                    output_path / "baseline_logistic.joblib")
+
+        # Train and evaluate on each fold
+        fold_results = []
+        all_predictions = []
+
+        for fold_num in range(1, n_folds + 1):
+            logger.info(f"Processing fold {fold_num}/{n_folds}...")
+            X_train, y_train, X_val, y_val, X_test, y_test, meta_test, feature_names = load_fold(
+                input_path, fold_num
+            )
+
+            # Train models
+            lgbm_model = train_lgbm(X_train, y_train, X_val, y_val, lgbm_best_params, config)
+            xgb_model = train_xgb(X_train, y_train, X_val, y_val, xgb_best_params, config)
+
+            # Save models
+            lgbm_model.save_model(str(output_path / f"lgbm_fold{fold_num}.joblib"))
+            xgb_model.save_model(str(output_path / f"xgb_fold{fold_num}.joblib"))
+
+            # Evaluate
+            fold_result = evaluate_fold(
+                lgbm_model, xgb_model, X_test, y_test, X_val, y_val, meta_test, config
+            )
+
+            # Save calibrator
+            joblib.dump(fold_result["calibrator"],
+                        output_path / f"calibrator_fold{fold_num}.joblib")
+
+            # Add fold info to predictions
+            preds = fold_result["predictions"]
+            preds["fold"] = fold_num
+            all_predictions.append(preds)
+
+            # SHAP explanations
+            logger.info(f"Computing SHAP explanations for fold {fold_num}...")
+            shap_max = config.get("shap", {}).get("max_samples", 1000)
+            explanations = generate_explanations(
+                lgbm_model, xgb_model, X_test, feature_names, meta_test, shap_max
+            )
+
+            # Save SHAP values
+            lgbm_shap_vals = explanations["lgbm_shap"].values
+            xgb_shap_vals = explanations["xgb_shap"].values
+            np.savez_compressed(
+                output_path / f"shap_values_fold{fold_num}.npz",
+                lgbm=lgbm_shap_vals,
+                xgb=xgb_shap_vals,
+            )
+
+            fold_results.append(fold_result)
+            results["folds"][f"fold_{fold_num}"] = {
+                "lgbm_metrics": fold_result["lgbm_metrics"],
+                "xgb_metrics": fold_result["xgb_metrics"],
+                "ensemble_metrics": fold_result["ensemble_metrics"],
+                "calibrated_metrics": fold_result["calibrated_metrics"],
+            }
+
+        # Cross-fold summary
+        summary = cross_fold_summary(fold_results)
+        results["summary"] = {
+            model: {metric: info["mean"] for metric, info in metrics.items()}
+            for model, metrics in summary.items()
+        }
+
+        # Save combined predictions
+        import pandas as pd
+        all_preds_df = pd.concat(all_predictions, ignore_index=True)
+        all_preds_df.to_csv(output_path / "predictions_test.csv", index=False)
+
+        # Save combined feature importance
+        last_explanations = explanations  # from last fold
+        last_explanations["combined_importance"].to_csv(
+            output_path / "feature_importance.csv", index=False
+        )
+
+        # Save full evaluation results
+        with open(output_path / "evaluation_results.json", "w") as f:
+            json_mod.dump(results, f, indent=2, default=str)
+
+        results["output_dir"] = str(output_path)
+        logger.info(f"Phase 3 complete. Outputs saved to {output_path}")
+        return results
+
     def close(self) -> None:
         """Close database connection."""
         self.db.close()

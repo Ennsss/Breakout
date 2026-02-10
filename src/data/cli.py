@@ -168,6 +168,62 @@ def cmd_label_stats(args):
     return 0
 
 
+def cmd_train(args):
+    """Handle train command — run Phase 3 pipeline."""
+    with DataPipeline(db_path=args.db) as pipeline:
+        results = pipeline.run_phase3(
+            input_dir=args.input,
+            output_dir=args.output,
+            n_trials=args.n_trials,
+            skip_tuning=args.skip_tuning,
+        )
+
+        print("\n=== Phase 3 Training Results ===")
+        if "summary" in results:
+            for model_name, metrics in results["summary"].items():
+                print(f"\n--- {model_name} (mean across folds) ---")
+                for metric, value in metrics.items():
+                    print(f"  {metric}: {value:.4f}")
+
+        if "output_dir" in results:
+            print(f"\nOutputs saved to: {results['output_dir']}")
+
+    return 0
+
+
+def cmd_evaluate(args):
+    """Handle evaluate command — show saved evaluation results."""
+    import json as json_mod
+    from pathlib import Path
+
+    results_path = Path(args.output) / "evaluation_results.json"
+    if not results_path.exists():
+        print(f"No evaluation results found at {results_path}")
+        print("Run 'train' command first.")
+        return 1
+
+    with open(results_path) as f:
+        results = json_mod.load(f)
+
+    print("=== Evaluation Results ===")
+
+    if "summary" in results:
+        print("\n--- Cross-Fold Summary (mean) ---")
+        for model_name, metrics in results["summary"].items():
+            print(f"\n  {model_name}:")
+            for metric, value in metrics.items():
+                print(f"    {metric}: {value:.4f}")
+
+    if "folds" in results:
+        for fold_name, fold_data in results["folds"].items():
+            print(f"\n--- {fold_name} ---")
+            cal_metrics = fold_data.get("calibrated_metrics", {})
+            for metric, value in cal_metrics.items():
+                print(f"  {metric}: {value:.4f}")
+
+    return 0
+
+
 def cmd_leagues(args):
     """Handle leagues command."""
     with DataPipeline() as pipeline:
@@ -298,6 +354,44 @@ def main():
         help="Directory with processed data (default: data/processed)",
     )
 
+    # train command
+    train_parser = subparsers.add_parser(
+        "train",
+        help="Run Phase 3 pipeline (tune, train, evaluate, explain)",
+    )
+    train_parser.add_argument(
+        "--input", "-i",
+        default="data/processed",
+        help="Input directory with fold parquet files (default: data/processed)",
+    )
+    train_parser.add_argument(
+        "--output", "-o",
+        default="outputs/models",
+        help="Output directory for models and results (default: outputs/models)",
+    )
+    train_parser.add_argument(
+        "--n-trials",
+        type=int,
+        default=100,
+        help="Number of Optuna tuning trials (default: 100)",
+    )
+    train_parser.add_argument(
+        "--skip-tuning",
+        action="store_true",
+        help="Skip hyperparameter tuning, use base params",
+    )
+
+    # evaluate command
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="Show evaluation results from saved JSON",
+    )
+    evaluate_parser.add_argument(
+        "--output", "-o",
+        default="outputs/models",
+        help="Directory with evaluation results (default: outputs/models)",
+    )
+
     # leagues command
     leagues_parser = subparsers.add_parser(
         "leagues",
@@ -323,6 +417,8 @@ def main():
         "stats": cmd_stats,
         "process": cmd_process,
         "label-stats": cmd_label_stats,
+        "train": cmd_train,
+        "evaluate": cmd_evaluate,
         "leagues": cmd_leagues,
     }
 
