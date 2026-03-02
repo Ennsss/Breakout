@@ -1,4 +1,4 @@
-# Hidden Gem Finder
+# Breakout
 
 **An end-to-end ML system that scouts lower-tier European football leagues to predict which players will break into the top 5 leagues within 3 years.**
 
