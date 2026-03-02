@@ -291,6 +291,10 @@ A player is labeled as a **breakout** if they accumulate 900+ minutes in any tar
 
 ---
 
+## Contributing
+
+Contributions are welcome! Feel free to open issues or submit pull requests.
+
 ## License
 
-Private project — not for distribution.
+MIT License — see [LICENSE](LICENSE) for details.
