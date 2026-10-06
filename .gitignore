@@ -78,3 +78,9 @@ scrape_log.txt
 
 # Windows artifacts
 nul
+
+# Local web accounts, sessions and secrets
+web/.instance/
+.vercel
+.env*
+public/

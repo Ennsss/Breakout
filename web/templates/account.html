@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Account security | Breakout{% endblock %}
+{% block scripts %}<script src="/static/account.js" defer></script>{% endblock %}
+{% block content %}
+<main id="main" class="auth-main account-main">
+  <a class="back-link" href="/app"><i data-lucide="arrow-left"></i> Back to workspace</a>
+  <div class="auth-form-wrap">
+    <p class="eyebrow">ACCOUNT SECURITY</p>
+    <h1>Your account.</h1>
+    <p class="muted">{{ user.email }}</p>
+    <form id="password-form">
+      <label for="current">Current password</label>
+      <input id="current" name="current" type="password" autocomplete="current-password" required maxlength="128" />
+      <label for="password">New password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required minlength="15" maxlength="128" aria-describedby="password-hint" />
+      <p id="password-hint" class="hint">Use a unique passphrase of at least 15 characters. Changing it signs you out on every device.</p>
+      <p class="error" id="account-error" role="alert" hidden></p>
+      <p id="account-status" role="status"></p>
+      <button type="submit" class="button dark full"><i data-lucide="key-round"></i> Change password</button>
+    </form>
+    <div class="auth-note"><i data-lucide="shield-check"></i><p>Sessions end after 30 minutes of inactivity, or eight hours after signing in.</p></div>
+    <button type="button" class="button full" id="logout-all"><i data-lucide="log-out"></i> Sign out all devices</button>
+  </div>
+</main>
+{% endblock %}

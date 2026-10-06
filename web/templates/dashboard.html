@@ -1,0 +1,310 @@
+{% extends 'base.html' %}{% block title %}Scouting workspace | Breakout{%
+endblock %}{% block bodyclass %}app-body{% endblock %}{% block scripts %}
+<script src="/static/dashboard.js" defer></script>
+{% endblock %}{% block content %}
+<aside class="app-sidebar">
+  <a class="brand" href="/"
+    ><span class="brand-mark"><i data-lucide="move-up-right"></i></span
+    >BREAKOUT.</a
+  >
+  <p class="nav-label">SCOUTING WORKSPACE</p>
+  <nav aria-label="Workspace">
+    <button class="nav-item active" data-view="rankings">
+      <i data-lucide="list-filter"></i>Player rankings</button
+    ><button class="nav-item" data-view="shortlist">
+      <i data-lucide="bookmark"></i>My shortlist
+      <span id="saved-count">0</span></button
+    ><button class="nav-item" data-view="model">
+      <i data-lucide="chart-no-axes-combined"></i>Model insights
+    </button>
+  </nav>
+  <div class="sidebar-note">
+    <i data-lucide="scan-eye"></i>
+    <h3>Potential, not promises.</h3>
+    <p>Model scores support your scouting judgment. They don't replace it.</p>
+  </div>
+  <div class="account">
+    <span class="avatar">{{ user.name[0]|upper }}</span>
+    <div><strong>{{ user.name }}</strong><small>Scout workspace</small></div>
+    <button
+      id="logout"
+      class="icon-button"
+      aria-label="Log out"
+      title="Log out"
+    >
+      <i data-lucide="log-out"></i>
+    </button>
+  </div>
+</aside>
+<div class="app-shell">
+  <header class="app-topbar">
+    <span
+      >Workspace <span class="slash">/</span
+      ><strong id="breadcrumb">Player rankings</strong></span
+    >
+    <div class="topbar-actions">
+      <a href="/account" aria-label="Account security" title="Account security"><i data-lucide="shield-check"></i></a>
+      <a href="/">Home <i data-lucide="arrow-up-right"></i></a
+      ><button
+        class="icon-button mobile-only"
+        id="logout-mobile"
+        aria-label="Log out"
+        title="Log out"
+      >
+        <i data-lucide="log-out"></i>
+      </button>
+    </div>
+  </header>
+  <main id="main" class="app-main">
+    <div class="dashboard-heading">
+      <div>
+        <p class="eyebrow">AHEAD OF THE NEXT MOVE</p>
+        <h1 id="view-title">Player rankings</h1>
+        <p class="muted" id="view-description">
+          A closer look at the players with a bigger next chapter.
+        </p>
+      </div>
+      <span class="tag"><span class="live-dot"></span> Research workspace</span>
+    </div>
+    <div class="source-notice" id="source-notice" role="status">
+      <i data-lucide="info"></i><span>Loading prediction data...</span>
+    </div>
+    <p id="app-error" role="alert" class="error" hidden></p>
+    <section id="rankings-view">
+      <div class="app-metrics">
+        <div>
+          <span>Player-season records</span><strong id="player-count">--</strong
+          ><small id="data-source">Loading source</small>
+        </div>
+        <div>
+          <span>Leagues represented</span><strong id="league-count">--</strong
+          ><small>In the connected dataset</small>
+        </div>
+        <div>
+          <span>Highest model score</span><strong id="highest">--</strong
+          ><small>Calibrated breakout probability</small>
+        </div>
+        <div>
+          <span>Your shortlist</span><strong id="shortlist-count">0</strong
+          ><small>Saved for a closer look</small>
+        </div>
+      </div>
+      <div class="rankings-toolbar">
+        <div class="search-field">
+          <i data-lucide="search"></i
+          ><label class="sr-only" for="search">Search player or club</label
+          ><input
+            type="search"
+            id="search"
+            placeholder="Search player or club..."
+          />
+        </div>
+        <div class="filter-row">
+          <label class="sr-only" for="cohort">Prediction cohort</label>
+          <select id="cohort">
+            <option value="all">All records</option>
+            <option value="Scouting predictions">Scouting predictions</option>
+            <option value="Historical evaluation">Historical evaluation</option>
+          </select>
+          <label class="sr-only" for="league">League</label
+          ><select id="league">
+            <option value="all">All leagues</option></select
+          ><label class="sr-only" for="season">Season</label
+          ><select id="season">
+            <option value="all">All seasons</option></select
+          ><label class="sr-only" for="age">Maximum age</label
+          ><select id="age">
+            <option value="all">All ages</option>
+            <option value="21">Age 21 and under</option>
+            <option value="23">Age 23 and under</option>
+            <option value="25">Age 25 and under</option></select
+          ><label class="sr-only" for="sort">Sort players</label
+          ><select id="sort">
+            <option value="probability">Highest score</option>
+            <option value="age">Youngest first</option>
+            <option value="name">Name A-Z</option></select
+          ><button
+            id="export"
+            class="icon-button"
+            title="Export filtered players"
+            aria-label="Export filtered players"
+            disabled
+          >
+            <i data-lucide="download"></i></button
+          ><button
+            id="reset"
+            class="icon-button"
+            title="Reset filters"
+            aria-label="Reset filters"
+          >
+            <i data-lucide="rotate-ccw"></i>
+          </button>
+        </div>
+      </div>
+      <div class="table-meta">
+        <span id="matches">Loading players...</span
+        ><span>Breakout = 900+ minutes in a top-5 league within 3 years</span>
+      </div>
+      <div class="table-wrap" id="table-wrap">
+        <div class="empty-state">
+          <i data-lucide="loader-circle"></i>
+          <h3>Loading player rankings</h3>
+        </div>
+      </div>
+      <div class="pagination">
+        <span id="page-label"></span>
+        <div>
+          <button
+            class="icon-button"
+            id="prev"
+            aria-label="Previous page"
+            title="Previous page"
+          >
+            <i data-lucide="chevron-left"></i></button
+          ><button
+            class="icon-button"
+            id="next"
+            aria-label="Next page"
+            title="Next page"
+          >
+            <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+    <section id="model-view" hidden>
+      <div class="model-head">
+        <p class="eyebrow" id="metric-source">
+          HISTORICAL EVALUATION / REPORTED IN THE PROJECT README
+        </p>
+        <h2>A score is only useful with context.</h2>
+        <p>
+          LightGBM and XGBoost form a weighted ensemble. Temporal validation
+          separates training seasons from later outcomes. These saved results
+          have not been recomputed by the web app.
+        </p>
+      </div>
+      <div class="app-metrics">
+        <div>
+          <span>ROC-AUC</span><strong id="metric-auc">0.717</strong
+          ><small>Ranking discrimination</small>
+        </div>
+        <div>
+          <span>Precision at 20</span><strong id="metric-p20">65.0%</strong
+          ><small>Among the top 20 predictions</small>
+        </div>
+        <div>
+          <span>Average precision</span><strong id="metric-ap">0.403</strong
+          ><small>Precision-recall summary</small>
+        </div>
+        <div>
+          <span>Brier score</span><strong id="metric-brier">0.133</strong
+          ><small>Probability error; lower is better</small>
+        </div>
+      </div>
+      <div class="model-grid">
+        <section>
+          <h3>What shaped the model</h3>
+          <p class="muted" id="feature-source">
+            Global SHAP importance reported in the README. Not an explanation
+            for any individual player.
+          </p>
+          <div class="feature-bars" id="feature-bars">
+            <div>
+              <span>Minutes share x age</span><strong>0.365</strong
+              ><i style="--width: 100%"></i>
+            </div>
+            <div>
+              <span>Shot volume vs league average</span><strong>0.107</strong
+              ><i style="--width: 29.3%"></i>
+            </div>
+            <div>
+              <span>Goals vs league average</span><strong>0.106</strong
+              ><i style="--width: 29%"></i>
+            </div>
+            <div>
+              <span>Career average minutes</span><strong>0.090</strong
+              ><i style="--width: 24.7%"></i>
+            </div>
+            <div>
+              <span>Assists vs league average</span><strong>0.085</strong
+              ><i style="--width: 23.3%"></i>
+            </div>
+          </div>
+        </section>
+        <section>
+          <h3>Validate forward, not backward.</h3>
+          <table class="data-table fold-table">
+            <thead>
+              <tr>
+                <th>Fold</th>
+                <th>Train through</th>
+                <th>Test season</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>01</td>
+                <td>2017-18</td>
+                <td>2019-20</td>
+              </tr>
+              <tr>
+                <td>02</td>
+                <td>2018-19</td>
+                <td>2020-21</td>
+              </tr>
+              <tr>
+                <td>03</td>
+                <td>2019-20</td>
+                <td>2021-22</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="muted">
+            Each fold uses the intervening season for validation. The
+            top-5-league label has a strict 900-minute threshold, which can
+            exclude short stays and loans.
+          </p>
+        </section>
+      </div>
+      <div class="artifact-note">
+        <i data-lucide="database"></i>
+        <div>
+          <h3 id="artifact-title">Connect the full scouting dataset</h3>
+          <p id="artifact-description">
+            Place <code>predictions_test.csv</code> and/or
+            <code>predictions_current.csv</code> in
+            <code>outputs/models/</code>, or set
+            <code>BREAKOUT_MODEL_OUTPUTS</code> to your existing output
+            directory. The rankings API reads these files automatically.
+          </p>
+          <a
+            href="https://github.com/Ennsss/Breakout"
+            target="_blank"
+            rel="noreferrer"
+            >Read the pipeline documentation <i data-lucide="arrow-up-right"></i
+          ></a>
+        </div>
+      </div>
+    </section>
+    <footer class="app-footer">
+      <span>BREAKOUT / Independent football intelligence</span
+      ><span>Scores inform. Scouts decide.</span>
+    </footer>
+  </main>
+</div>
+<dialog id="player-dialog" aria-labelledby="player-report-title">
+  <div class="dialog-top">
+    <span class="eyebrow" id="player-report-title">PLAYER REPORT</span
+    ><button
+      class="icon-button"
+      id="close-player"
+      aria-label="Close player report"
+    >
+      <i data-lucide="x"></i>
+    </button>
+  </div>
+  <div id="player-detail"></div>
+</dialog>
+<div id="toast" role="status" hidden></div>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends 'base.html' %}{% block title %}{{ 'Create account' if register else
+'Log in' }} | Breakout{% endblock %}{% block scripts %}
+<script src="/static/auth.js" defer></script>
+{% endblock %}{% block content %}
+<div class="auth-layout">
+  <aside class="auth-photo">
+    <img src="/static/football.jpg" alt="Football stadium" /><a
+      class="brand"
+      href="/"
+      ><span class="brand-mark"><i data-lucide="move-up-right"></i></span
+      >BREAKOUT.</a
+    >
+    <div>
+      <p class="eyebrow light">THE NEXT CHAPTER IS OUT THERE.</p>
+      <h2>Be early.<br />Be informed.</h2>
+      <p>A sharper perspective on emerging football talent.</p>
+    </div>
+    <small>Independent football intelligence.</small>
+  </aside>
+  <main id="main" class="auth-main">
+    <a class="back-link" href="/"
+      ><i data-lucide="arrow-left"></i> Back to Breakout</a
+    >
+    <div class="auth-form-wrap">
+      <p class="eyebrow">YOUR SCOUTING WORKSPACE</p>
+      <h1>{{ 'Start looking ahead.' if register else 'Welcome back.' }}</h1>
+      <p class="muted">
+        {{ 'Create an account to build your own player shortlist.' if register
+        else 'Log in to pick up where you left off.' }}
+      </p>
+      <form
+        id="auth-form"
+        data-mode="{{ 'register' if register else 'login' }}"
+      >
+        {% if register %}<label for="name">Full name</label
+        ><input
+          id="name"
+          name="name"
+          autocomplete="name"
+          required
+          minlength="2"
+          maxlength="80"
+          placeholder="Your name"
+        />{% endif %}<label for="email">Email address</label
+        ><input
+          id="email"
+          name="email"
+          type="email"
+          autocomplete="email"
+          required
+          maxlength="254"
+          placeholder="you@example.com"
+        /><label for="password">Password</label>
+        <div class="password-field">
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="{{ 'new-password' if register else 'current-password' }}"
+            required
+            minlength="{{ 15 if register else 1 }}"
+            maxlength="128"
+            aria-describedby="password-hint"
+          /><button
+            class="icon-button"
+            type="button"
+            id="show-password"
+            title="Show password"
+            aria-label="Show password"
+          >
+            <i data-lucide="eye"></i>
+          </button>
+        </div>
+        <p class="hint" id="password-hint">
+          {{ 'At least 15 characters. Use a unique passphrase.' if register else
+          'Use the password you chose when creating your account.' }}
+        </p>
+        <p id="auth-error" role="alert" class="error" hidden></p>
+        <button type="submit" class="button dark full" id="auth-submit">
+          <span>{{ 'Create account' if register else 'Log in' }}</span
+          ><i data-lucide="arrow-right"></i>
+        </button>
+      </form>
+      <p class="auth-switch">
+        {{ 'Already have an account?' if register else 'New to Breakout?' }}
+        <a href="{{ '/login' if register else '/register' }}"
+          >{{ 'Log in' if register else 'Create an account' }}</a
+        >
+      </p>
+      <div class="auth-note">
+        <i data-lucide="lock-keyhole"></i>
+        <p>
+          Your shortlist is private to your account. This research app has no
+          email verification or self-service password reset yet.
+        </p>
+      </div>
+    </div>
+    <span class="auth-credit">Breakout / Football talent intelligence</span>
+  </main>
+</div>
+{% endblock %}

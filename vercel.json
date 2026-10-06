@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "flask",
+  "regions": ["sin1"],
+  "functions": { "web/app.py": { "maxDuration": 30 } }
+}
