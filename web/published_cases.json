@@ -1,0 +1,122 @@
+[
+  {
+    "name": "Eberechi Eze",
+    "age": 21,
+    "team": "QPR",
+    "probability": 0.646,
+    "destination": "Crystal Palace (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Bryan Mbeumo",
+    "age": 20,
+    "team": "Brentford",
+    "probability": 0.62,
+    "destination": "Brentford (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Said Benrahma",
+    "age": 24,
+    "team": "Brentford",
+    "probability": 0.6,
+    "destination": "West Ham (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Ollie Watkins",
+    "age": 24,
+    "team": "Brentford",
+    "probability": 0.594,
+    "destination": "Aston Villa (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Matty Cash",
+    "age": 22,
+    "team": "Nott'm Forest",
+    "probability": 0.589,
+    "destination": "Aston Villa (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Jarrod Bowen",
+    "age": 23,
+    "team": "Hull City",
+    "probability": 0.582,
+    "destination": "West Ham (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Ben White",
+    "age": 22,
+    "team": "Leeds United",
+    "probability": 0.569,
+    "destination": "Arsenal (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Brennan Johnson",
+    "age": 20,
+    "team": "Nott'm Forest",
+    "probability": 0.556,
+    "destination": "Tottenham (PL)",
+    "league": "championship",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Francisco Trincao",
+    "age": 20,
+    "team": "Braga",
+    "probability": 0.542,
+    "destination": "Wolves (PL)",
+    "league": "primeira-liga",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  },
+  {
+    "name": "Charles De Ketelaere",
+    "age": 21,
+    "team": "Club Brugge",
+    "probability": 0.528,
+    "destination": "AC Milan (Serie A)",
+    "league": "belgian-pro-league",
+    "season": "Published examples",
+    "position": "Unspecified",
+    "label": 1,
+    "source": "README case study"
+  }
+]

@@ -1,5 +1,13 @@
 # Breakout
 
+## New Web Experience
+
+The project now includes a responsive homepage and authenticated scouting workspace with player filters, reports, private shortlists, CSV export, and model insights. Run `pip install -r requirements-web.txt` followed by `python -m web.app`, then open `http://127.0.0.1:5052`.
+
+**Data note:** the GitHub checkout excludes prediction artifacts. Until those are connected, the new workspace clearly shows the 10 historical case studies already published below. It does not generate substitute scores. See [web setup, data provenance, and authentication notes](web/README.md).
+
+The original ML pipeline and Streamlit dashboard remain available as described below.
+
 **An end-to-end ML system that scouts lower-tier European football leagues to predict which players will break into the top 5 leagues within 3 years.**
 
 The system scrapes real player data from three sources, fuses them via fuzzy matching, engineers 48 features, and trains a calibrated LightGBM + XGBoost ensemble — all evaluated with walk-forward temporal cross-validation to prevent data leakage. It ships with a Streamlit scouting dashboard featuring SHAP-powered player profiles.
