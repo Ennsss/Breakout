@@ -1,112 +1,122 @@
-"""Flask app with database-backed accounts, revocable sessions and private shortlists."""
+"""Authenticated scouting workspace with shared storage and revocable sessions."""
 
 import hashlib
 import hmac
 import os
 import re
 import secrets
-import sqlite3
 import time
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError, InvalidHashError
 from flask import Flask, g, jsonify, redirect, render_template, request, session
-from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from web.data import load_dataset
+from web.store import make_engine, metadata, take_quota, users
+
+PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=1)
+DUMMY_HASH = PASSWORDS.hash(secrets.token_urlsafe(32))
 
 
 def create_app(config=None):
     app = Flask(__name__)
-    instance = Path(
-        os.environ.get(
-            "BREAKOUT_INSTANCE", Path(__file__).resolve().parent / ".instance"
-        )
+    production = (
+        os.environ.get("BREAKOUT_PRODUCTION") == "1" or os.environ.get("VERCEL") == "1"
     )
-    instance.mkdir(parents=True, exist_ok=True)
+    instance = Path(
+        os.environ.get("BREAKOUT_INSTANCE", Path(__file__).parent / ".instance")
+    )
     secret = os.environ.get("BREAKOUT_SECRET_KEY")
-    production = os.environ.get("BREAKOUT_PRODUCTION") == "1"
-    if production and (not secret or len(secret) < 32):
-        raise RuntimeError(
-            "Production requires BREAKOUT_SECRET_KEY with at least 32 characters."
-        )
-    if not secret:
-        key = instance / "session.key"
-        try:
-            with key.open("x") as f:
-                f.write(secrets.token_hex(32))
-        except FileExistsError:
-            pass
-        secret = key.read_text()
+    database_url = os.environ.get("BREAKOUT_DATABASE_URL") or os.environ.get(
+        "DATABASE_URL"
+    )
+    if production:
+        if not secret or len(secret) < 32:
+            raise RuntimeError(
+                "Production requires a random BREAKOUT_SECRET_KEY of at least 32 characters."
+            )
+        if not database_url or not database_url.startswith(
+            ("postgres://", "postgresql://", "postgresql+psycopg://")
+        ):
+            raise RuntimeError(
+                "Production requires a persistent PostgreSQL DATABASE_URL."
+            )
+    else:
+        instance.mkdir(parents=True, exist_ok=True)
+        if not secret:
+            key = instance / "session.key"
+            try:
+                with key.open("x") as f:
+                    f.write(secrets.token_hex(32))
+            except FileExistsError:
+                pass
+            secret = key.read_text()
     app.config.update(
         SECRET_KEY=secret,
-        DATABASE=str(instance / "accounts.sqlite3"),
+        DATABASE=str(instance / "accounts-v2.sqlite3"),
+        DATABASE_URL=database_url,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=production,
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+        SESSION_COOKIE_NAME="__Host-breakout" if production else "session",
+        SESSION_COOKIE_PATH="/",
+        SESSION_REFRESH_EACH_REQUEST=False,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+        SESSION_IDLE_SECONDS=1800,
+        SESSION_ABSOLUTE_SECONDS=28800,
         MAX_CONTENT_LENGTH=8192,
         MODEL_OUTPUTS=os.environ.get("BREAKOUT_MODEL_OUTPUTS"),
         ALLOW_REGISTRATION=True,
+        PRODUCTION=production,
     )
     if config:
         app.config.update(config)
-
-    def db():
-        if "db" not in g:
-            g.db = sqlite3.connect(app.config["DATABASE"], timeout=10)
-            g.db.row_factory = sqlite3.Row
-            g.db.execute("PRAGMA foreign_keys = ON")
-        return g.db
-
-    @app.teardown_appcontext
-    def close_db(_error):
-        connection = g.pop("db", None)
-        if connection is not None:
-            connection.close()
-
-    with app.app_context():
-        db().executescript("""
-          CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL);
-          CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires REAL NOT NULL);
-          CREATE TABLE IF NOT EXISTS shortlist (user_id INTEGER NOT NULL REFERENCES users(id), player_id TEXT NOT NULL, PRIMARY KEY(user_id,player_id));
-          CREATE TABLE IF NOT EXISTS attempts (key TEXT NOT NULL, time REAL NOT NULL);
-          CREATE INDEX IF NOT EXISTS attempt_time ON attempts(key,time);
-        """)
-        db().commit()
+    if production:
+        app.config["TRUSTED_HOSTS"] = list(
+            filter(
+                None,
+                [
+                    "breakout-scouting-frederick.vercel.app",
+                    os.environ.get("VERCEL_URL"),
+                    os.environ.get("VERCEL_PROJECT_PRODUCTION_URL"),
+                ],
+            )
+        )
+    engine = make_engine(
+        app.config["DATABASE_URL"] or "sqlite:///" + app.config["DATABASE"]
+    )
+    app.extensions["account_engine"] = engine
+    # Production schema is initialized explicitly, not by the restricted web role.
+    if not production:
+        metadata.create_all(engine)
 
     def csrf():
         if "csrf" not in session:
             session["csrf"] = secrets.token_urlsafe(32)
         return session["csrf"]
 
+    def token_hash():
+        return hashlib.sha256(session.get("sid", "").encode()).hexdigest()
+
     app.jinja_env.globals["csrf_token"] = csrf
 
     @app.before_request
     def guard():
         g.user = None
-        if session.get("sid"):
-            token = hashlib.sha256(session["sid"].encode()).hexdigest()
-            row = (
-                db()
-                .execute(
-                    "SELECT u.id,u.name,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?",
-                    (token, time.time()),
-                )
-                .fetchone()
-            )
-            if row:
-                g.user = dict(row)
-        if (
-            request.path.startswith("/api/")
-            and request.path not in ["/api/login", "/api/register"]
-        ) or request.path == "/app":
-            if not g.user:
-                return (
-                    (jsonify(error="Sign in to continue."), 401)
-                    if request.path.startswith("/api/")
-                    else redirect("/login")
-                )
+        if request.path.startswith("/static/"):
+            return None
         if request.method in ("POST", "DELETE", "PUT", "PATCH"):
+            origin = request.headers.get("Origin")
+            expected_origin = urlsplit(request.host_url)
+            if request.headers.get("Sec-Fetch-Site") == "cross-site" or (
+                origin
+                and origin != f"{expected_origin.scheme}://{expected_origin.netloc}"
+            ):
+                return jsonify(error="Cross-site requests are not allowed."), 403
             expected = session.get("csrf", "")
             if not expected or not hmac.compare_digest(
                 expected.encode(), request.headers.get("X-CSRF-Token", "").encode()
@@ -114,21 +124,73 @@ def create_app(config=None):
                 return jsonify(
                     error="Your session changed. Reload the page and try again."
                 ), 403
+        if session.get("sid"):
+            now = time.time()
+            with engine.begin() as db:
+                row = (
+                    db.execute(
+                        text("""
+                    SELECT u.id,u.name,u.email FROM sessions s JOIN users u ON u.id=s.user_id
+                    WHERE s.token=:token AND s.expires>:now AND s.last_seen>:idle
+                """),
+                        {
+                            "token": token_hash(),
+                            "now": now,
+                            "idle": now - app.config["SESSION_IDLE_SECONDS"],
+                        },
+                    )
+                    .mappings()
+                    .first()
+                )
+                if row:
+                    g.user = dict(row)
+                    db.execute(
+                        text("UPDATE sessions SET last_seen=:now WHERE token=:token"),
+                        {"now": now, "token": token_hash()},
+                    )
+                else:
+                    db.execute(
+                        text("DELETE FROM sessions WHERE token=:token"),
+                        {"token": token_hash()},
+                    )
+                    session.clear()
+        protected = (
+            request.path.startswith("/api/")
+            and request.path not in ("/api/login", "/api/register")
+        ) or request.path in ("/app", "/account")
+        if protected and not g.user:
+            return (
+                (jsonify(error="Sign in to continue."), 401)
+                if request.path.startswith("/api/")
+                else redirect("/login")
+            )
 
     @app.after_request
     def headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=()"
+        )
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         )
-        response.headers["Cache-Control"] = (
-            "no-store"
-            if request.path.startswith("/api/")
-            or request.path in ["/app", "/login", "/register"]
-            else "no-cache"
-        )
+        response.headers["Cache-Control"] = "no-store"
+        if app.config["PRODUCTION"]:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response
+
+    @app.errorhandler(SQLAlchemyError)
+    def unavailable(_error):
+        app.logger.error("Account database operation failed")
+        return jsonify(
+            error="Account service is temporarily unavailable. Please try again shortly."
+        ), 503
+
+    @app.errorhandler(413)
+    def oversized(_error):
+        return jsonify(error="Request is too large."), 413
 
     @app.get("/")
     def home():
@@ -145,38 +207,67 @@ def create_app(config=None):
     def dashboard():
         return render_template("dashboard.html", user=g.user)
 
+    @app.get("/account")
+    def account():
+        return render_template("account.html", user=g.user)
+
     def throttled(email):
-        # Database-backed per-address and per-account limits work across server workers.
-        keys = ["ip:" + (request.remote_addr or "unknown"), "email:" + email]
-        now = time.time()
-        db().execute("DELETE FROM attempts WHERE time < ?", (now - 900,))
-        counts = [
-            db()
-            .execute(
-                "SELECT count(*) FROM attempts WHERE key=? AND time>?", (key, now - 900)
-            )
-            .fetchone()[0]
-            for key in keys
-        ]
-        if counts[0] >= 30 or counts[1] >= 10:
-            return True
-        db().executemany(
-            "INSERT INTO attempts VALUES (?,?)", [(key, now) for key in keys]
-        )
-        db().commit()
+        ip = request.remote_addr or "unknown"
+        if os.environ.get("VERCEL") == "1":
+            ip = request.headers.get("X-Forwarded-For", ip).split(",")[0].strip()
+        for value, limit in (("ip:" + ip, 30), ("email:" + email, 10)):
+            key = hmac.new(
+                app.secret_key.encode(), value.encode(), hashlib.sha256
+            ).hexdigest()
+            if not take_quota(engine, key, int(time.time() // 900), limit):
+                return True
         return False
 
-    def sign_in(user_id):
-        session.clear()
+    def sign_in(user_id, verified_hash):
+        old_token = token_hash()
         sid = secrets.token_urlsafe(32)
+        now = time.time()
+        with engine.begin() as db:
+            current = (
+                db.execute(
+                    users.select().where(users.c.id == user_id).with_for_update()
+                )
+                .mappings()
+                .one()
+            )
+            if not hmac.compare_digest(current["password"], verified_hash):
+                return False
+            db.execute(
+                text(
+                    "DELETE FROM sessions WHERE token=:token OR expires<:now OR last_seen<:idle"
+                ),
+                {
+                    "token": old_token,
+                    "now": now,
+                    "idle": now - app.config["SESSION_IDLE_SECONDS"],
+                },
+            )
+            db.execute(
+                text(
+                    "INSERT INTO sessions(token,user_id,expires,last_seen) VALUES (:token,:user_id,:expires,:now)"
+                ),
+                {
+                    "token": hashlib.sha256(sid.encode()).hexdigest(),
+                    "user_id": user_id,
+                    "expires": now + app.config["SESSION_ABSOLUTE_SECONDS"],
+                    "now": now,
+                },
+            )
+        session.clear()
         session.update(sid=sid, csrf=secrets.token_urlsafe(32))
         session.permanent = True
-        db().execute("DELETE FROM sessions WHERE expires < ?", (time.time(),))
-        db().execute(
-            "INSERT INTO sessions VALUES (?,?,?)",
-            (hashlib.sha256(sid.encode()).hexdigest(), user_id, time.time() + 43200),
-        )
-        db().commit()
+        return True
+
+    def verify(stored, password):
+        try:
+            return PASSWORDS.verify(stored, password)
+        except (VerificationError, InvalidHashError):
+            return False
 
     @app.post("/api/register")
     @app.post("/api/login")
@@ -197,9 +288,13 @@ def create_app(config=None):
                 error="Enter a valid email and a password of up to 128 characters."
             ), 400
         if throttled(email):
-            return jsonify(
-                error="Too many attempts. Wait 15 minutes before trying again."
-            ), 429
+            return (
+                jsonify(
+                    error="Too many attempts. Wait 15 minutes before trying again."
+                ),
+                429,
+                {"Retry-After": "900"},
+            )
         if request.path.endswith("register"):
             if not app.config["ALLOW_REGISTRATION"]:
                 return jsonify(error="Account registration is closed."), 403
@@ -207,38 +302,93 @@ def create_app(config=None):
             if (
                 not isinstance(name, str)
                 or not 2 <= len(name.strip()) <= 80
-                or len(password) < 12
+                or len(password) < 15
             ):
                 return jsonify(
-                    error="Use a name of 2-80 characters and a password of at least 12 characters."
+                    error="Use a name of 2-80 characters and a password of at least 15 characters."
                 ), 400
+            hashed = PASSWORDS.hash(password)
             try:
-                result = db().execute(
-                    "INSERT INTO users(name,email,password) VALUES (?,?,?)",
-                    (name.strip(), email, generate_password_hash(password)),
-                )
-                db().commit()
-            except sqlite3.IntegrityError:
+                with engine.begin() as db:
+                    user_id = db.execute(
+                        users.insert()
+                        .values(name=name.strip(), email=email, password=hashed)
+                        .returning(users.c.id)
+                    ).scalar_one()
+            except IntegrityError:
                 return jsonify(
                     error="An account could not be created with these details. Try signing in."
                 ), 409
-            sign_in(result.lastrowid)
+            sign_in(user_id, hashed)
         else:
-            user = (
-                db().execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-            )
-            if not user or not check_password_hash(user["password"], password):
+            with engine.connect() as db:
+                user = (
+                    db.execute(
+                        text("SELECT * FROM users WHERE email=:email"), {"email": email}
+                    )
+                    .mappings()
+                    .first()
+                )
+            valid = verify(user["password"] if user else DUMMY_HASH, password)
+            if not user or not valid:
                 return jsonify(error="Email or password is incorrect."), 401
-            sign_in(user["id"])
+            if not sign_in(user["id"], user["password"]):
+                return jsonify(error="Email or password is incorrect."), 401
         return jsonify(ok=True)
 
     @app.post("/api/logout")
+    @app.post("/api/logout-all")
     def logout():
-        db().execute(
-            "DELETE FROM sessions WHERE token=?",
-            (hashlib.sha256(session["sid"].encode()).hexdigest(),),
-        )
-        db().commit()
+        with engine.begin() as db:
+            if request.path.endswith("logout-all"):
+                db.execute(
+                    text("DELETE FROM sessions WHERE user_id=:id"), {"id": g.user["id"]}
+                )
+            else:
+                db.execute(
+                    text("DELETE FROM sessions WHERE token=:token"),
+                    {"token": token_hash()},
+                )
+        session.clear()
+        return jsonify(ok=True)
+
+    @app.post("/api/password")
+    def change_password():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error="Enter your current and new password."), 400
+        current, new = payload.get("current", ""), payload.get("password", "")
+        if (
+            not isinstance(current, str)
+            or not isinstance(new, str)
+            or not 1 <= len(current) <= 128
+            or not 15 <= len(new) <= 128
+        ):
+            return jsonify(
+                error="Use a new password between 15 and 128 characters."
+            ), 400
+        if throttled(g.user["email"]):
+            return jsonify(
+                error="Too many attempts. Wait 15 minutes before trying again."
+            ), 429
+        with engine.begin() as db:
+            user = (
+                db.execute(
+                    users.select().where(users.c.id == g.user["id"]).with_for_update()
+                )
+                .mappings()
+                .one()
+            )
+            if not verify(user["password"], current):
+                return jsonify(error="Current password is incorrect."), 400
+            db.execute(
+                users.update()
+                .where(users.c.id == g.user["id"])
+                .values(password=PASSWORDS.hash(new))
+            )
+            db.execute(
+                text("DELETE FROM sessions WHERE user_id=:id"), {"id": g.user["id"]}
+            )
         session.clear()
         return jsonify(ok=True)
 
@@ -247,23 +397,26 @@ def create_app(config=None):
         try:
             data = load_dataset(app.config["MODEL_OUTPUTS"])
         except (ValueError, OSError):
-            app.logger.exception("Could not load prediction artifacts")
             return jsonify(
                 error="Prediction files could not be read. Check the pipeline output schema."
             ), 503
         visible_ids = {player["id"] for player in data["players"]}
-        data["saved"] = [
-            r[0]
-            for r in db().execute(
-                "SELECT player_id FROM shortlist WHERE user_id=?", (g.user["id"],)
-            )
-            if r[0] in visible_ids
-        ]
+        with engine.connect() as db:
+            data["saved"] = [
+                r[0]
+                for r in db.execute(
+                    text("SELECT player_id FROM shortlist WHERE user_id=:id"),
+                    {"id": g.user["id"]},
+                )
+                if r[0] in visible_ids
+            ]
         return jsonify(data)
 
     @app.post("/api/shortlist/<player_id>")
     @app.delete("/api/shortlist/<player_id>")
     def shortlist(player_id):
+        if len(player_id) > 128:
+            return jsonify(error="Player not found."), 404
         if request.method == "POST":
             try:
                 available = {
@@ -276,16 +429,11 @@ def create_app(config=None):
                 ), 503
             if player_id not in available:
                 return jsonify(error="Player not found."), 404
-            db().execute(
-                "INSERT OR IGNORE INTO shortlist VALUES (?,?)",
-                (g.user["id"], player_id),
-            )
+            query = "INSERT INTO shortlist(user_id,player_id) VALUES (:id,:player) ON CONFLICT (user_id,player_id) DO NOTHING"
         else:
-            db().execute(
-                "DELETE FROM shortlist WHERE user_id=? AND player_id=?",
-                (g.user["id"], player_id),
-            )
-        db().commit()
+            query = "DELETE FROM shortlist WHERE user_id=:id AND player_id=:player"
+        with engine.begin() as db:
+            db.execute(text(query), {"id": g.user["id"], "player": player_id})
         return jsonify(ok=True)
 
     return app

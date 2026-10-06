@@ -58,7 +58,7 @@
             type="password"
             autocomplete="{{ 'new-password' if register else 'current-password' }}"
             required
-            minlength="{{ 12 if register else 1 }}"
+            minlength="{{ 15 if register else 1 }}"
             maxlength="128"
             aria-describedby="password-hint"
           /><button
@@ -72,7 +72,7 @@
           </button>
         </div>
         <p class="hint" id="password-hint">
-          {{ 'At least 12 characters. Use a unique password.' if register else
+          {{ 'At least 15 characters. Use a unique passphrase.' if register else
           'Use the password you chose when creating your account.' }}
         </p>
         <p id="auth-error" role="alert" class="error" hidden></p>

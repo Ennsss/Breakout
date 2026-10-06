@@ -5,20 +5,7 @@ import sqlite3
 
 import pytest
 
-from web.app import create_app
 from web.data import load_dataset, load_model_report
-
-
-@pytest.fixture
-def app(tmp_path):
-    return create_app(
-        {
-            "TESTING": True,
-            "DATABASE": str(tmp_path / "test.sqlite3"),
-            "SECRET_KEY": "test-only-key",
-            "MODEL_OUTPUTS": str(tmp_path),
-        }
-    )
 
 
 def token(client):
@@ -111,7 +98,7 @@ def test_password_hash_and_session_expiry(app):
     register(client)
     with sqlite3.connect(app.config["DATABASE"]) as db:
         value = db.execute("SELECT password FROM users").fetchone()[0]
-        assert value.startswith("scrypt:") and value != "a-long-local-test-password"
+        assert value.startswith("$argon2id$") and value != "a-long-local-test-password"
         db.execute("UPDATE sessions SET expires=0")
         db.commit()
     assert client.get("/api/players").status_code == 401

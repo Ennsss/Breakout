@@ -13,7 +13,9 @@ pip install -r requirements-web.txt
 python -m web.app
 ```
 
-Open http://127.0.0.1:5052. Create an account using your own email and a unique password of at least 12 characters. There are no built-in credentials. Accounts are local to this installation.
+Open http://127.0.0.1:5052. Create an account using a unique passphrase of at least 15 characters. There are no built-in credentials. Local and hosted accounts are separate.
+
+Live application: https://breakout-scouting-frederick.vercel.app
 
 For a persistent WSGI process:
 
@@ -48,15 +50,26 @@ Optionally include `evaluation_results.json` and `feature_importance.csv` in the
 
 ## Authentication and Hosting
 
-- SQLite stores scrypt password hashes, hashed session tokens, account-scoped shortlists, and login-attempt counters.
-- Sessions expire after 12 hours, are revocable on logout, and use HttpOnly / SameSite=Lax cookies.
-- State-changing requests require a session-bound CSRF token. Database-backed login limits apply per email and source address.
-- `web/.instance/` contains local secrets and account data and is ignored by Git. Back it up appropriately; never publish it.
-- Set `BREAKOUT_PRODUCTION=1` and a random `BREAKOUT_SECRET_KEY` of at least 32 characters for hosting. This enforces Secure cookies. Serve behind HTTPS.
-- Set `BREAKOUT_INSTANCE` to a persistent, access-restricted disk directory. Ephemeral/serverless storage is not appropriate for this SQLite setup.
-- Deploy a single host, or replace SQLite with a shared database for a multi-host deployment. Apply proxy rate limits and configure trusted proxy handling for your actual topology rather than trusting arbitrary forwarding headers.
+- Neon PostgreSQL persists hosted accounts and shortlists across Vercel deployments. SQLAlchemy uses parameterized statements and verified TLS. The runtime database role has only CRUD permissions on the four application tables and access to the user-ID sequence, not schema ownership. Owner credentials are not installed in Vercel's runtime environment.
+- Passwords use Argon2id (64 MiB, three iterations, one lane), with 15-128 character passphrases. Nonexistent accounts still perform a dummy hash check; login failures do not identify whether an email exists.
+- Random 256-bit session tokens are stored only as SHA-256 hashes in PostgreSQL. Signed `__Host-breakout` cookies are Secure, HttpOnly, SameSite=Lax, and scoped to `/` without a Domain attribute. Session tokens never go into localStorage.
+- Server-side expiry is 30 minutes idle / eight hours absolute. Login rotates sessions; logout revokes the token. Account security supports current-password-verified password changes and signing out all devices. Password changes revoke all sessions.
+- Mutations require a session-bound CSRF token and reject cross-site browser origins. CSP, HSTS, frame restrictions, no-sniff, and no-store headers are enabled. Trusted hosts are restricted in production.
+- Atomic PostgreSQL counters enforce 10 authentication attempts per email and 30 per IP per fixed 15-minute window across workers. Counters store keyed hashes, not raw email/IP values. Vercel's overwritten client-IP header is trusted only on Vercel. These are application controls, not complete DDoS protection.
+- `web/.instance/` remains local-only and ignored. Version 2 uses `accounts-v2.sqlite3`; the original local database is preserved, not migrated or uploaded. Never publish instance data or `.env*` files.
 - No email verification, password reset, team sharing, MFA, or external identity provider is implemented. This is a small research/portfolio app, not an enterprise identity service.
 - Authentication protects the new Flask web app only. Do not expose the separate legacy Streamlit server publicly without its own access controls.
+
+## Vercel Deployment
+
+`pyproject.toml` selects the lightweight Flask runtime, not the original ML training dependencies. The build publishes only `web/static` as CDN assets. The four prediction/evaluation files remain in the server bundle, behind the authenticated API. `.vercelignore` excludes account files, secrets, caches, tests, and the training datasets.
+
+1. Initialize an empty PostgreSQL database with `DATABASE_URL` set to its migration connection: `python -m scripts.init_accounts`.
+2. Create a runtime login with only the table/sequence permissions above. Configure its URL as `BREAKOUT_DATABASE_URL` and a random 64-byte `BREAKOUT_SECRET_KEY` in Vercel's Production environment. Do not configure the database-owner URL in the app.
+3. Include the four original files in `outputs/models/` when deploying from the CLI. They remain ignored by Git, so Git-based builds alone cannot reproduce the full dataset.
+4. Run `vercel deploy --prod`. Production fails closed without a strong key and persistent PostgreSQL URL. For non-Vercel hosting, set `BREAKOUT_PRODUCTION=1` and adjust the trusted-host list to your domain.
+
+Keep the Neon resource on its free plan. The marketplace's default project connection was disconnected after provisioning to remove owner-level environment variables; the restricted runtime URL still connects to the same database. No paid upgrade was selected. Free-tier quotas and cold starts still apply.
 
 ## Tests
 
@@ -64,7 +77,7 @@ Optionally include `evaluation_results.json` and `feature_importance.csv` in the
 python -m pytest web/tests -q
 ```
 
-Tests cover registration, login failure/success, password hashing, session expiry and revocation, CSRF, rate limiting, private shortlists, stale saved records, artifact validation, optional evaluation reports, and snapshot provenance.
+Tests cover registration, login failure/success, Argon2id hashing, absolute/idle expiry, rotation and revocation, CSRF/origin checks, concurrent rate limits, secure cookies, password changes, private shortlists, stale records, artifact validation, optional evaluation reports, and snapshot provenance. Live smoke tests additionally exercise PostgreSQL permissions and persistent shortlists across logout/login using disposable accounts that are deleted afterward.
 
 ## Assets and AI Assistance
 
